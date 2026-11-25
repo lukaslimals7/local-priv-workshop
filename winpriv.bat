@@ -1,7 +1,8 @@
 :: Local Privilege Escalation Workshop - Windows
 :: Anonymous workshop harness. Deliberately misconfigures a Windows host so
 :: every local privilege-escalation primitive can be practised end to end.
-:: Tested on Windows 10 22H2 and Windows 11 23H2 (run as Administrator).
+:: Written for Windows 10 and 11. Not verified against every build: run it in a
+:: snapshot first and check the /verify output at the end (run as Administrator).
 ::
 ::   winpriv.bat            build the lab
 ::   winpriv.bat /noverify  skip the embedded-payload hash gate
