@@ -1,0 +1,19 @@
+# scan output: one directory per run, never committed
+linux_local_privesc-*/
+*/report.txt
+.checks
+.findings
+*.json
+!README.md
+
+# lab builder journals and backups (created on the target, not in the repo)
+journal.tsv
+backups/
+
+# editors and OS noise
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
