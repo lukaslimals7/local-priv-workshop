@@ -190,27 +190,52 @@ WantedBy=multi-user.target' 0666
     fi
 }
 
+# Install a sudoers fragment only if it parses.
+# A single unparseable file in /etc/sudoers.d disables sudo entirely -- including
+# the sudo you would need in order to delete it ("no valid sudoers sources
+# found"). Validate a temp file first, then move it into place atomically.
+# The temp name starts with a dot: sudo ignores files containing a '.'.
+put_sudoers() { # $1 = path, $2 = content
+    local p="$1" c="$2" tmp out
+    if [ "$DRY" = "1" ]; then act "would write $p"; return 0; fi
+    tmp="$(dirname "$p")/.$(basename "$p").tmp"
+    j_modified "$p"
+    printf '%s\n' "$c" > "$tmp"
+    chmod 0440 "$tmp"
+    if ! out=$(visudo -cf "$tmp" 2>&1); then
+        rm -f "$tmp"
+        warn "REFUSED: generated sudoers fragment failed validation, $p not installed"
+        printf '%s\n' "$out" | head -3
+        return 1
+    fi
+    mv -f "$tmp" "$p"
+    if ! visudo -c >/dev/null 2>&1; then
+        rm -f "$p"
+        warn "REFUSED: that fragment broke the global sudoers set, removed again"
+        return 1
+    fi
+    ok "sudoers fragment installed: $p"
+    return 0
+}
+
 sc_sudo() {
     act "NOPASSWD sudo for GTFOBins"
-    local rules=""
-    local b
-    for b in vim less find awk rsync systemctl tar; do
-        command -v "$b" >/dev/null 2>&1 && rules="${rules}%$LAB_USER ALL=(root) NOPASSWD: $(command -v $b)
+    local rules="" b
+    # NOTE: a rule without a leading '%' applies to a USER; '%name' means GROUP.
+    for b in vim less find awk rsync systemctl tar env; do
+        command -v "$b" >/dev/null 2>&1 || continue
+        rules="${rules}${LAB_USER} ALL=(root) NOPASSWD: $(command -v "$b")
 "
     done
-    rules="${rules}%$LAB_USER ALL=(root) NOPASSWD: /usr/bin/env
-"
-    put /etc/sudoers.d/90-lab "$rules" 0440
-    [ "$DRY" = "0" ] && visudo -cf /etc/sudoers.d/90-lab >/dev/null 2>&1 \
-        && ok "sudo: /etc/sudoers.d/90-lab ($(printf '%s' "$rules" | grep -c NOPASSWD) NOPASSWD rules)" \
-        || warn "sudoers file written; check with visudo -cf"
+    [ -n "$rules" ] || { warn "none of the target binaries exist here, skipping"; return 0; }
+    if put_sudoers /etc/sudoers.d/90-lab "$rules"; then
+        [ "$DRY" = "0" ] && ok "sudo: $(printf '%s' "$rules" | grep -c NOPASSWD) NOPASSWD rules for $LAB_USER"
+    fi
 }
 
 sc_sudoenv() {
     act "sudoers env_keep LD_PRELOAD"
-    put /etc/sudoers.d/91-labenv '%Defaultsenv_keep += "LD_PRELOAD LD_LIBRARY_PATH"
-' 0440
-    [ "$DRY" = "0" ] && ok "sudoenv: LD_PRELOAD survives sudo"
+    put_sudoers /etc/sudoers.d/91-labenv 'Defaults env_keep += "LD_PRELOAD LD_LIBRARY_PATH"'
 }
 
 sc_caps() {
@@ -389,6 +414,12 @@ do_undo() {
         esac
     done
     rm -f /etc/cron.d/lab-cleanup /etc/cron.d/lab-backup /etc/cron.d/lab-task /etc/sudoers.d/90-lab /etc/sudoers.d/91-labenv
+    rm -f /etc/sudoers.d/.90-lab.tmp /etc/sudoers.d/.91-labenv.tmp
+    if visudo -c >/dev/null 2>&1; then
+        ok "sudoers parses cleanly"
+    else
+        warn "sudoers still broken -- check /etc/sudoers.d by hand (pkexec rm ...)"
+    fi
     rm -rf "$ROOT"
     systemctl daemon-reload >/dev/null 2>&1
     exportfs -ra >/dev/null 2>&1
@@ -410,6 +441,13 @@ do_verify() {
     systemctl is-enabled labapp >/dev/null 2>&1 && ok "systemd: labapp enabled" || { warn "systemd: labapp not enabled"; bad=$((bad+1)); }
     getent group docker 2>/dev/null | grep -q "$LAB_USER" && ok "docker: $LAB_USER in group" || warn "docker: user not in group"
     id "$LAB_USER" >/dev/null 2>&1 && ok "user: $LAB_USER exists" || { warn "user: $LAB_USER missing"; bad=$((bad+1)); }
+    # sudo must always parse: a bad fragment here locks you out of sudo itself
+    if visudo -c >/dev/null 2>&1; then
+        ok "sudoers: parses cleanly"
+    else
+        warn "sudoers: PARSE ERROR -- sudo is disabled. Remove the offending file in /etc/sudoers.d (pkexec rm ...)"
+        bad=$((bad+1))
+    fi
     say ""
     if [ "$bad" = "0" ]; then ok "lab looks complete -- log in as $LAB_USER and run linux_local_privesc.sh"
     else warn "$bad item(s) need attention"; fi

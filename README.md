@@ -156,6 +156,27 @@ then decodes every embedded hex payload and compares its MD5 against the hash
 the script gates on. That is how the payloads were confirmed intact during the
 refactor.
 
+## Troubleshooting
+
+**`sudo` stopped working: `no valid sudoers sources found, quitting`**
+
+One unparseable file in `/etc/sudoers.d` disables sudo entirely — including the
+sudo you would need in order to delete it. `pkexec` does not read sudoers, so it
+still works:
+
+```bash
+pkexec rm -f /etc/sudoers.d/91-labenv    # or whichever file the error names
+sudo -l                                  # confirm sudo is back
+```
+
+No polkit agent (no desktop session)? Reboot, press `e` on the GRUB entry,
+change `ro quiet splash` to `rw init=/bin/bash`, boot with Ctrl-X, and delete
+the file from that shell. Recovery mode gives you the same root shell.
+
+The builder now validates every fragment with `visudo -cf` on a temp file and
+refuses to install one that does not parse, so a broken fragment should not be
+possible from this version onward.
+
 ## Licence and provenance
 
 MIT — see `LICENSE`. Use it, fork it, teach with it.
