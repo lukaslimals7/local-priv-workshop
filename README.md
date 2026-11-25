@@ -45,36 +45,12 @@ so an existing `user` or `admin` account on the box is never touched.
 | 10 | SYSTEM scheduled task on a writable script | `CleanUp` -> `C:\DevTools` |
 | 11 | Writable Startup folder | `ProgramData\...\Startup` |
 | 12 | On-logon SYSTEM task + `savecred` task | `LPE`, `SaveCred` |
-| 13 | **Backup Operators membership** (SeBackupPrivilege) | log off/on, then `reg save hklm\sam` |
-| 14 | **UAC bypass via fodhelper** (auto-elevating binary) | as `labadmin`: run `fodhelper.exe` |
-| 15 | **Credentials on disk** | `Documents\deploy-notes.txt`, PSReadLine history, `.ssh\id_rsa`, `.git-credentials` |
+| 13 | Backup Operators membership (SeBackupPrivilege) | log off/on, then `reg save hklm\sam` |
+| 14 | UAC bypass via fodhelper (auto-elevating binary) | as `labadmin`: run `fodhelper.exe` |
+| 15 | Credentials on disk | `Documents\deploy-notes.txt`, PSReadLine history, `.ssh\id_rsa`, `.git-credentials` |
 
 `/verify` output (printed at the end) checks each one and reports pass/fail, so a
 half-built lab is obvious instead of mysterious.
-
-### What changed from the original, and why
-
-- **Authorship and links removed.** No names, no external URLs; the banner is
-  now just the workshop title.
-- **Password mismatch fixed.** The banner advertised `password4321` while the
-  code set `password321`. Both now agree with the banner.
-- **Accounts renamed** to `labuser` / `labadmin` and guarded, so an existing
-  `user`/`admin` on the machine is never given a lab password.
-- **`setx /m Path` replaced.** `setx` truncates at 1024 characters and copies
-  the *caller's user* PATH into the machine-wide value. The new
-  `:append_system_path` reads the registry value and appends, idempotently, and
-  `:remove_system_path` takes it back out on `/undo`.
-- **Elevation check made locale-independent.** `net session` and
-  `fsutil dirty query` are tried first; the original `whoami` string match only
-  survives as a last resort, and it now checks the `S-1-16-12288` SID.
-- **`/undo` added** — services, tasks, registry keys, accounts, folders,
-  firewall and Defender policy all restored.
-- **`/noverify` added** so you can edit the script without tripping the
-  embedded-payload MD5 gates.
-- **End-of-run verification** so you know the lab is actually live.
-
-The embedded hex payloads were not touched: `build/lint_bat.py` decodes each one
-and checks it against the MD5 the script gates on. All seven still match.
 
 ---
 
@@ -104,19 +80,13 @@ Reading the output:
 - `[ .. ]` context
 - `[ ok ]` a check that passed
 
-Design notes that matter if you edit it:
+If you modify it:
 
-- **One filesystem walk.** `find / -printf` builds `fs.tsv`, and every
-  permission question is an awk query over that index. The first draft ran five
-  separate `find /` passes plus `getcap -r /` plus a recursive grep of `$HOME`,
-  which is minutes of I/O on a real disk.
-- **Counters are file-backed**, because most checks run inside pipelines and
-  subshells where variable increments are lost.
-- **Findings are sanitised at the emit boundary**, so a multi-line process
-  command line cannot corrupt the findings file.
-- **Severity is ownership-aware**: your own writable `~/.local/bin` is INFO, a
-  root-owned directory writable by you is CRIT.
-- Each section header prints `(+Ns)` so a slow section names itself.
+- one filesystem walk writes `fs.tsv`; every permission check is an awk query
+  over that index, so adding a check costs a scan of one file, not the disk
+- severity is ownership-aware: your own writable `~/.local/bin` is INFO, a
+  root-owned directory writable by you is CRIT
+- each section header prints `(+Ns)`, so a slow run names its own bottleneck
 
 `--selftest` asserts the helper contracts (version ordering, permission
 comparison, record sanitisation, findings plumbing) and exits non-zero on
